@@ -1,0 +1,6 @@
+[main]
+54.93.71.48 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/test_key
+
+[all:vars]
+disk_to_encrypt=/dev/xvdf
+partition_to_encrypt=/dev/xvda14

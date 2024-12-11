@@ -1,0 +1,9 @@
+---
+- hosts: main
+  become: yes
+  roles:
+    - { role: disk_encryption }
+    - { role: partition_encryption }
+    - { role: network_setup, new_network_interface_name: "net0" }
+    - { role: gather_info }
+    - { role: cpu_tuning }   # --skip-tags persistent to avoid reboot

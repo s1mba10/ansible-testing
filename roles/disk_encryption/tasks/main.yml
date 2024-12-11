@@ -1,0 +1,66 @@
+- name: Ensure cryptsetup is installed
+  apt:
+    name: cryptsetup
+    state: present
+
+- name: Create a LUKS key file
+  command: >
+    dd if=/dev/urandom of={{ key_file }} bs=1024 count=4
+  args:
+    creates: "{{ key_file }}"
+
+- name: Set permissions on the key file
+  file:
+    path: "{{ key_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Check if the disk is already encrypted
+  shell: cryptsetup isLuks {{ disk_to_encrypt }}
+  register: luks_status
+  ignore_errors: true
+
+- name: Format the disk with LUKS encryption using the key file
+  shell: |
+    cryptsetup luksFormat --batch-mode --key-file={{ key_file }} {{ disk_to_encrypt }}
+  when: luks_status.rc != 0
+
+- name: Check if the encrypted device is already open
+  shell: ls /dev/mapper/{{ encrypted_name }}
+  register: encrypted_device_status
+  ignore_errors: true
+
+- name: Open the LUKS encrypted disk using the key file
+  shell: |
+    cryptsetup luksOpen --key-file={{ key_file }} {{ disk_to_encrypt }} {{ encrypted_name }}
+  when: encrypted_device_status.rc != 0
+
+- name: Wait for the encrypted device to appear
+  wait_for:
+    path: /dev/mapper/{{ encrypted_name }}
+    timeout: 20
+
+- name: Check if filesystem already exists on the encrypted disk
+  shell: blkid /dev/mapper/{{ encrypted_name }}
+  register: filesystem_status
+  ignore_errors: true
+
+- name: Create an ext4 filesystem on the encrypted disk
+  filesystem:
+    fstype: ext4
+    dev: /dev/mapper/{{ encrypted_name }}
+  when: filesystem_status.rc != 0
+
+- name: Create the mount point
+  file:
+    path: "{{ mount_point }}"
+    state: directory
+    mode: "0755"
+
+- name: Mount the encrypted disk
+  mount:
+    path: "{{ mount_point }}"
+    src: /dev/mapper/{{ encrypted_name }}
+    fstype: ext4
+    state: mounted

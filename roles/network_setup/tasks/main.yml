@@ -1,0 +1,42 @@
+- name: Gather facts about the system
+  setup:
+    gather_subset:
+      - network
+
+- name: Get the active network interface
+  shell: "ip -o link show | grep -E 'state UP' | awk -F': ' '{print $2}'"
+  register: active_interface
+  changed_when: false
+
+- name : Display active network interface
+  debug:
+    msg: "Active network interface is {{ active_interface.stdout }}"
+
+- name: Rename the active network interface to desired via Netplan
+  block:
+    - name: Create backup of the current Netplan configuration
+      copy:
+        src: /etc/netplan/50-cloud-init.yaml
+        dest: /etc/netplan/50-cloud-init.yaml.bak
+        remote_src: true
+
+    - name: Replace active network interface name with desired
+      replace:
+        path: /etc/netplan/50-cloud-init.yaml
+        regexp: "\\b{{ active_interface.stdout }}\\b"
+        replace: "{{ new_network_interface_name }}"
+      register: netplan_updated
+
+    - name: Apply the updated Netplan configuration
+      command: netplan apply
+      when: netplan_updated.changed
+  when: active_interface.stdout != new_network_interface_name
+
+- name: Display renamed network interface information
+  shell: ip addr show dev {{ new_network_interface_name }}
+  register: interface_info
+  changed_when: false
+
+- name: Show renamed network interface information
+  debug:
+    msg: "{{ interface_info.stdout }}"

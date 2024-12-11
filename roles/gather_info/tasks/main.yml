@@ -1,0 +1,19 @@
+- name: List all CPUs
+  shell: grep -c ^processor /proc/cpuinfo
+  register: cpu_count
+  changed_when: false
+
+- name: Display CPU count
+  debug:
+    msg: "Total CPUs: {{ cpu_count.stdout }}"
+
+- name: Check for Intel Hyper-Threading or AMD SMT
+  shell: |
+    lscpu | grep -E '^Thread\(s\) per core:|^Model name:|^Vendor ID:'
+  register: ht_info
+  changed_when: false
+
+- name: Display Hyper-Threading or SMT information
+  debug:
+    msg: >
+      {{ ht_info.stdout }}

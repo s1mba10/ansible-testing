@@ -1,0 +1,59 @@
+- name: Get all CPU state disable files
+  shell: find /sys/devices/system/cpu/cpu*/cpuidle/state*/disable
+  register: state_disable_files
+  ignore_errors: true
+
+- name: Disable all available C-states
+  shell: echo "1" > {{ item }}
+  loop: "{{ state_disable_files.stdout_lines }}"
+  when: state_disable_files.stdout is defined and state_disable_files.stdout_lines | length > 0
+
+- name: Verify C-states are disabled
+  shell: |
+    for state in {{ state_disable_files.stdout_lines | join(' ') }}; do
+      echo "$state: $(cat $state)";
+    done
+  args:
+    executable: /bin/bash
+  when: state_disable_files.stdout is defined and state_disable_files.stdout_lines | length > 0
+  register: verify_cstates
+
+- name: Display C-state verification results
+  debug:
+    msg: "{{ verify_cstates.stdout }}"
+
+- name: Install tuned for performance optimization
+  package:
+    name: tuned
+    state: present
+
+- name: Enable latency-performance profile in tuned
+  command: tuned-adm profile latency-performance
+
+- name: Verify tuned profile activation
+  shell: tuned-adm active
+  register: tuned_profile
+  changed_when: false
+
+- name: Display tuned profile
+  debug:
+    msg: "{{ tuned_profile.stdout }}"
+  
+  # Persistent part as a block
+- name: Make C-state disabling persistent
+  block:
+    - name: Add kernel parameters to disable C-states
+      lineinfile:
+        path: /etc/default/grub
+        regexp: '^GRUB_CMDLINE_LINUX='
+        line: 'GRUB_CMDLINE_LINUX="intel_idle.max_cstate=0 processor.max_cstate=1 nohz=off highres=off tsc=reliable"'
+
+    - name: Update GRUB configuration
+      command: update-grub
+
+    - name: Reboot the system
+      command: reboot
+      async: 1
+      poll: 0
+  tags:
+    - persistent

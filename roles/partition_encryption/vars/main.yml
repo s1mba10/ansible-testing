@@ -1,0 +1,3 @@
+key_file: /root/luks-keyfile
+mount_point: /mnt/data
+backup_location: /mnt/backup

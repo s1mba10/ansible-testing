@@ -15,13 +15,13 @@ This playbook orchestrates the following system configuration tasks:
 ### **Run the Playbook**
 Execute the playbook to apply all tasks:
 ```bash
-ansible-playbook playbook.yml
+ansible-playbook playbook.yml ----vault-password-file .ansible/pass-text.txt
 ```
 
 ### **Skip Persistent Changes in CPU Tuning**
 To skip rebooting and non-persistent changes for `cpu_tuning`, use:
 ```bash
-ansible-playbook playbook.yml --skip-tags persistent
+ansible-playbook playbook.yml ----vault-password-file .ansible/pass-text.txt --skip-tags persistent
 ```
 
 ---

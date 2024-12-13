@@ -3,94 +3,45 @@
     name: cryptsetup
     state: present
 
-- name: Create a backup directory
-  file:
-    path: "{{ backup_location }}"
-    state: directory
-    mode: "0755"
-
-- name: Backup existing data from the partition
-  shell: rsync -avh {{ mount_point }}/ {{ backup_location }}/
-  when: mount_point != ""
-
-- name: Unmount the partition
-  command: umount {{ mount_point }}
-  ignore_errors: true
-
 ###### CLEARS THE PARTITION ######
 - name: Ensure the partition is clean
   shell: dd if=/dev/zero of={{ partition_to_encrypt }} bs=512 count=4
   ignore_errors: true
   when: partition_to_encrypt is defined
 
-- name: Create a LUKS key file
-  command: >
-    dd if=/dev/urandom of={{ key_file }} bs=1024 count=4
-  args:
-    creates: "{{ key_file }}"
-
-- name: Set permissions on the key file
-  file:
-    path: "{{ key_file }}"
+- name: Create a LUKS key file from Ansible Vault content
+  copy:
+    dest: "{{ key_file }}"
+    content: "{{ luks_key_content }}"
     owner: root
     group: root
     mode: "0600"
 
-- name: Format the partition with LUKS1 encryption using the key file
-  shell: |
-    sudo cryptsetup luksFormat --type luks1 --batch-mode --key-file={{ key_file }} {{ partition_to_encrypt }}
-  args:
-    creates: /dev/mapper/{{ encrypted_name }}
+- name: Set up LUKS encryption on the partition
+  community.crypto.luks_device:
+    device: "{{ partition_to_encrypt }}"
+    state: present
+    keyfile: "{{ key_file }}"
+    type: luks1
+    pbkdf: 
+      iteration_count: 1000
 
-- name: Check if LUKS mapping exists
-  shell: ls /dev/mapper/{{ encrypted_name }}
-  register: luks_mapping_check
-  ignore_errors: true
+- name: Open the LUKS encrypted partition
+  community.crypto.luks_device:
+    device: "{{ partition_to_encrypt }}"
+    state: opened
+    keyfile: "{{ key_file }}"
+    name: "{{ encrypted_name }}"
 
-- name: Open the LUKS encrypted partition using the key file
-  shell: |
-    cryptsetup luksOpen --key-file={{ key_file }} {{ partition_to_encrypt }} {{ encrypted_name }}
-  when: luks_mapping_check.rc != 0
+- name: Ensure disk is encrypted
+  shell: lsblk -f {{ partition_to_encrypt }}
+  register: disk_info
 
-- name: Wait for the encrypted device to appear
-  wait_for:
-    path: /dev/mapper/{{ encrypted_name }}
-    timeout: 20
-
-- name: Create a vfat filesystem on the encrypted partition
-  shell: mkfs.vfat /dev/mapper/{{ encrypted_name }}
-  register: filesystem_creation_status
-  ignore_errors: true
-
-- name: Debug filesystem creation
+- name: Debug disk information
   debug:
-    msg: "Filesystem creation status: {{ filesystem_creation_status.stdout }}"
+    msg: "Disk is encrypted {{ disk_info.stdout }}"
 
-- name: Verify filesystem creation
-  shell: blkid /dev/mapper/{{ encrypted_name }}
-  register: blkid_status
-
-- name: Debug filesystem creation output
-  debug:
-    msg: "{{ blkid_status.stdout }}"
-
-- name: Create the mount point
-  file:
-    path: "{{ mount_point }}"
-    state: directory
-    mode: "0755"
-
-- name: Mount the encrypted partition
-  mount:
-    path: "{{ mount_point }}"
-    src: /dev/mapper/{{ encrypted_name }}
-    fstype: vfat
-    state: mounted
-
-- name: Restore the data to the encrypted partition
-  shell: rsync -avh {{ backup_location }}/ {{ mount_point }}/
-
-- name: Clean up the backup
-  file:
-    path: "{{ backup_location }}"
-    state: absent
+- name: Close the LUKS encrypted partition
+  community.crypto.luks_device:
+    state: "closed"
+    name: "{{ encrypted_name }}"

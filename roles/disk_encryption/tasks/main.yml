@@ -3,15 +3,10 @@
     name: cryptsetup
     state: present
 
-- name: Create a LUKS key file
-  command: >
-    dd if=/dev/urandom of={{ key_file }} bs=1024 count=4
-  args:
-    creates: "{{ key_file }}"
-
-- name: Set permissions on the key file
-  file:
-    path: "{{ key_file }}"
+- name: Create a LUKS key file from Ansible Vault content
+  copy:
+    dest: "{{ key_file }}"
+    content: "{{ luks_key_content }}"
     owner: root
     group: root
     mode: "0600"
@@ -22,8 +17,11 @@
   ignore_errors: true
 
 - name: Format the disk with LUKS encryption using the key file
-  shell: |
-    cryptsetup luksFormat --batch-mode --key-file={{ key_file }} {{ disk_to_encrypt }}
+  community.crypto.luks_device:
+    device: "{{ disk_to_encrypt }}"
+    state: present
+    keyfile: "{{ key_file }}"
+    label: "{{ encrypted_name }}"
   when: luks_status.rc != 0
 
 - name: Check if the encrypted device is already open
@@ -32,35 +30,25 @@
   ignore_errors: true
 
 - name: Open the LUKS encrypted disk using the key file
-  shell: |
-    cryptsetup luksOpen --key-file={{ key_file }} {{ disk_to_encrypt }} {{ encrypted_name }}
+  community.crypto.luks_device:
+    device: "{{ disk_to_encrypt }}"
+    state: opened
+    name: "{{ encrypted_name }}"
+    keyfile: "{{ key_file }}"
   when: encrypted_device_status.rc != 0
 
-- name: Wait for the encrypted device to appear
-  wait_for:
-    path: /dev/mapper/{{ encrypted_name }}
-    timeout: 20
+- name: Disk information
+  shell: lsblk -f {{ disk_to_encrypt }}
+  register: disk_info
 
-- name: Check if filesystem already exists on the encrypted disk
-  shell: blkid /dev/mapper/{{ encrypted_name }}
-  register: filesystem_status
-  ignore_errors: true
+- name: Encryption dump
+  shell: cryptsetup luksDump {{ disk_to_encrypt }}
+  register: luks_dump
 
-- name: Create an ext4 filesystem on the encrypted disk
-  filesystem:
-    fstype: ext4
-    dev: /dev/mapper/{{ encrypted_name }}
-  when: filesystem_status.rc != 0
+- name: Debug disk information
+  debug:
+    msg: "Disk is encrypted {{ disk_info.stdout }}"
 
-- name: Create the mount point
-  file:
-    path: "{{ mount_point }}"
-    state: directory
-    mode: "0755"
-
-- name: Mount the encrypted disk
-  mount:
-    path: "{{ mount_point }}"
-    src: /dev/mapper/{{ encrypted_name }}
-    fstype: ext4
-    state: mounted
+# - name: Debug encryption dump
+#   debug:
+#     msg: "{{ luks_dump.stdout }}"
